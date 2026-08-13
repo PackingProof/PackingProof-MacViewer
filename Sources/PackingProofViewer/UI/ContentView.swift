@@ -236,13 +236,13 @@ struct ContentView: View {
             Image(nsImage: Self.appIcon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 30, height: 30)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text("PackingProof 查看端")
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 Text("只连接主机查看")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -272,7 +272,7 @@ struct ContentView: View {
                             .font(.title3)
                             .foregroundStyle(.tertiary)
                         Text("未找到主机")
-                            .font(.callout)
+                            .font(.body)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -305,7 +305,7 @@ struct ContentView: View {
                         .controlSize(.small)
                 }
                 Text(model.status)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -357,15 +357,15 @@ private struct HostCard: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(host.nodeName)
-                    .font(.callout.weight(.semibold))
+                    .font(.headline)
                 Text(host.address)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
             if !host.capabilitySummary.isEmpty {
                 Text(host.capabilitySummary)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -402,14 +402,14 @@ private struct ManualConnectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("手动连接主机")
-                .font(.headline)
+                .font(.title3.weight(.semibold))
 
             TextField("例如 192.168.1.5:5280 或带 key 的完整链接", text: $input)
                 .textFieldStyle(.roundedBorder)
 
             if let errorText {
                 Text(errorText)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(AppTheme.errorRed)
             }
 
