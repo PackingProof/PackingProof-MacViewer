@@ -44,7 +44,10 @@ final class HostDiscovery {
     }
 
     /// 先验证上次连接的主机，再扫描本机所在网段；按 nodeId 去重。
-    func discover(lastKnownAddress: String?) async -> [DiscoveredHost] {
+    func discover(
+        lastKnownAddress: String?,
+        onProgress: (@Sendable (String) async -> Void)? = nil
+    ) async -> [DiscoveredHost] {
         var hosts: [DiscoveredHost] = []
         var seenNodeIds = Set<String>()
         var seenAddresses = Set<String>()
@@ -69,6 +72,11 @@ final class HostDiscovery {
         while start < pending.count {
             let end = min(start + batchSize, pending.count)
             let batch = Array(pending[start..<end])
+            if let onProgress, let first = batch.first, let colonIndex = first.firstIndex(of: ":") {
+                let ip = first[..<colonIndex]
+                let lastDot = ip.lastIndex(of: ".") ?? ip.startIndex
+                await onProgress("正在查找 \(ip[..<lastDot]).x")
+            }
             await withTaskGroup(of: DiscoveredHost?.self) { group in
                 for candidate in batch {
                     group.addTask { await self.probe(candidate) }
@@ -114,7 +122,8 @@ final class HostDiscovery {
         }
     }
 
-    /// 枚举活动 IPv4 网卡：排除回环/隧道，按“私有网段优先、接口名稳定排序”。
+    /// 枚举活动 IPv4 网卡并按子网展开成待扫描的完整主机列表：
+    /// 排除回环/隧道，私有网段优先，跳过网络号与广播地址。
     @Sendable static func localAddresses() -> [IPv4Address] {
         var candidates: [NetworkCandidate] = []
         var head: UnsafeMutablePointer<ifaddrs>?
@@ -154,7 +163,12 @@ final class HostDiscovery {
             candidates.append(NetworkCandidate(address: address, mask: mask, interfaceName: name))
         }
 
-        return candidates
+        return scanAddresses(for: candidates)
+    }
+
+    /// 与上游 GetLocalIpv4ScanAddresses 一致：每个网卡候选地址按其掩码展开子网。
+    static func scanAddresses(for candidates: [NetworkCandidate]) -> [IPv4Address] {
+        candidates
             .sorted {
                 if $0.address.isPrivateLanAddress != $1.address.isPrivateLanAddress {
                     return $0.address.isPrivateLanAddress
@@ -164,6 +178,8 @@ final class HostDiscovery {
                 }
                 return $0.address.value < $1.address.value
             }
-            .map(\.address)
+            .flatMap { candidate in
+                SubnetEnumerator.enumerate(address: candidate.address, mask: candidate.mask)
+            }
     }
 }

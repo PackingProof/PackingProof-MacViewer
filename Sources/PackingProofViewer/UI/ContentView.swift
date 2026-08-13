@@ -40,7 +40,9 @@ final class ViewerModel: ObservableObject {
             : "正在验证上次连接的主机"
         defer { isSearching = false }
 
-        let found = await discovery.discover(lastKnownAddress: lastKnownAddress)
+        let found = await discovery.discover(lastKnownAddress: lastKnownAddress) { text in
+            await MainActor.run { self.status = text }
+        }
         hosts = found
 
         if let rememberedNodeId = UserDefaults.standard.string(forKey: Keys.nodeId),
@@ -71,6 +73,7 @@ final class ViewerModel: ObservableObject {
             status = "请先选择一台主机"
             return
         }
+        remember(host)
         guard NSWorkspace.shared.open(url) else {
             status = "打开网页回放失败"
             return

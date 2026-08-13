@@ -63,4 +63,19 @@ final class IPv4SubnetTests: XCTestCase {
         XCTAssertEqual(hosts.first?.description, "10.20.1.1")
         XCTAssertEqual(hosts.last?.description, "10.20.1.254")
     }
+
+    func testScanAddressesExpandsEveryInterfaceSubnet() {
+        let candidates = [
+            NetworkCandidate(
+                address: IPv4Address(string: "192.168.31.147")!,
+                mask: 0xffffff00,
+                interfaceName: "en1"
+            )
+        ]
+        let addresses = HostDiscovery.scanAddresses(for: candidates)
+        XCTAssertEqual(addresses.count, 254)
+        XCTAssertEqual(addresses.first?.description, "192.168.31.1")
+        XCTAssertEqual(addresses.last?.description, "192.168.31.254")
+        XCTAssertTrue(addresses.contains(IPv4Address(string: "192.168.31.250")!))
+    }
 }
