@@ -174,4 +174,25 @@ final class ViewerModelWebAccessTests: XCTestCase {
 
         XCTAssertEqual(recorder.urls, ["http://192.0.2.10:5280/"])
     }
+
+    func testChangingHostKeepsSavedWebKeyForOldHost() async {
+        let keyStore = MemoryKeyStore()
+        keyStore.save("savedkey", for: hostAddress)
+        let recorder = URLRecorder()
+        let model = makeModel(keyStore: keyStore, session: makeSession(), recorder: recorder)
+
+        UserDefaults.standard.set(hostAddress, forKey: "LastKnownHostAddress")
+        UserDefaults.standard.set("old-host-node", forKey: "LastKnownHostNodeId")
+        UserDefaults.standard.set("电脑1", forKey: "LastKnownHostNodeName")
+        defer {
+            UserDefaults.standard.removeObject(forKey: "LastKnownHostAddress")
+            UserDefaults.standard.removeObject(forKey: "LastKnownHostNodeId")
+            UserDefaults.standard.removeObject(forKey: "LastKnownHostNodeName")
+        }
+
+        await model.clearRememberedHost()
+
+        XCTAssertEqual(keyStore.key(for: hostAddress), "savedkey")
+        XCTAssertNil(model.lastKnownAddress)
+    }
 }

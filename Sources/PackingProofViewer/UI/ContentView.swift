@@ -181,9 +181,6 @@ final class ViewerModel: ObservableObject {
     }
 
     func clearRememberedHost() async {
-        if let address = lastKnownAddress {
-            keyStore.deleteKey(for: address)
-        }
         UserDefaults.standard.removeObject(forKey: Keys.address)
         UserDefaults.standard.removeObject(forKey: Keys.nodeId)
         UserDefaults.standard.removeObject(forKey: Keys.nodeName)
