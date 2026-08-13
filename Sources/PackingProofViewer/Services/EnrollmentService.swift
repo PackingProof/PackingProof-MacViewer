@@ -44,7 +44,8 @@ final class EnrollmentService {
     init(
         deviceId: String = EnrollmentService.persistentDeviceId(),
         deviceName: String = Host.current().localizedName ?? "Mac 查看端",
-        clientVersion: String = "0.1.0",
+        // 查看端注册协议兼容版本，与产品版本号无关；需 >= 主机 MinimumViewerVersion。
+        clientVersion: String = "0.0.49",
         session: URLSession? = nil,
         configuration: Configuration = Configuration()
     ) {
