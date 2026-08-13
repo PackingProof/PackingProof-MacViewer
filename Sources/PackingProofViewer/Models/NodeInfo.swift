@@ -65,3 +65,32 @@ struct DiscoveredHost: Identifiable, Hashable, Sendable {
         URL(string: address)
     }
 }
+
+/// 已缓存主机：持久化到 UserDefaults，下次启动优先检查是否仍在线。
+struct HostCacheEntry: Codable, Identifiable, Sendable {
+    let nodeId: String
+    var nodeName: String
+    var address: String
+    var capabilitySummary: String
+    var accessProtected: Bool?
+
+    var id: String { nodeId }
+
+    init(host: DiscoveredHost) {
+        nodeId = host.nodeId
+        nodeName = host.nodeName
+        address = host.address
+        capabilitySummary = host.capabilitySummary
+        accessProtected = host.accessProtected
+    }
+
+    var discoveredHost: DiscoveredHost {
+        DiscoveredHost(
+            nodeId: nodeId,
+            nodeName: nodeName,
+            address: address,
+            capabilitySummary: capabilitySummary,
+            accessProtected: accessProtected
+        )
+    }
+}

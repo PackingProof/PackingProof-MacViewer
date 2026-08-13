@@ -11,17 +11,20 @@ final class ViewerModel: ObservableObject {
     @Published var isSearching = false
     @Published var isOpeningWeb = false
     @Published var selectedHostId: String?
+    @Published var onlineNodeIds: Set<String> = []
 
     private let discovery: HostDiscovery
     private let enrollment: EnrollmentService
     private let probe: WebAccessProbe
     private let keyStore: any WebAccessKeyStoring
     private let openURL: (URL) -> Bool
+    private var didAutoOpenWeb = false
 
     private enum Keys {
         static let address = "LastKnownHostAddress"
         static let nodeId = "LastKnownHostNodeId"
         static let nodeName = "LastKnownHostNodeName"
+        static let knownHosts = "KnownHosts"
     }
 
     init(
@@ -36,6 +39,7 @@ final class ViewerModel: ObservableObject {
         self.probe = probe
         self.keyStore = keyStore
         self.openURL = openURL
+        refreshHostListFromCache()
     }
 
     var lastKnownAddress: String? {
@@ -47,30 +51,132 @@ final class ViewerModel: ObservableObject {
         return hosts.first { $0.nodeId == selectedHostId }
     }
 
+    /// 启动时优先验证已缓存主机是否在线；全部离线才扫描局域网。
+    func startupRefresh() async {
+        guard !isSearching else { return }
+        isSearching = true
+        defer { isSearching = false }
+
+        await verifyKnownHosts()
+        if onlineNodeIds.isEmpty {
+            status = "已缓存的主机都离线，正在搜索局域网"
+            await discoverAll()
+        }
+        refreshStatusFromOnlineCount()
+        await maybeAutoOpenWeb()
+    }
+
+    /// 手动重新搜索：忽略缓存，完整扫描局域网。
     func search() async {
         guard !isSearching else { return }
         isSearching = true
-        status = lastKnownAddress == nil
-            ? "正在搜索同一网络中的主机"
-            : "正在验证上次连接的主机"
+        status = "正在搜索同一网络中的主机"
         defer { isSearching = false }
 
+        await discoverAll()
+        refreshStatusFromOnlineCount()
+    }
+
+    private func verifyKnownHosts() async {
+        status = "正在检查已缓存的主机"
+        let cached = loadCachedHosts()
+        hosts = cached.map(\.discoveredHost)
+        onlineNodeIds = []
+
+        let results: [DiscoveredHost?] = await withTaskGroup(of: DiscoveredHost?.self) { group in
+            for host in cached {
+                group.addTask { await self.discovery.probe(host.address) }
+            }
+            var collected: [DiscoveredHost?] = []
+            for await liveHost in group {
+                collected.append(liveHost)
+            }
+            return collected
+        }
+        for liveHost in results.compactMap({ $0 }) {
+            onlineNodeIds.insert(liveHost.nodeId)
+            upsertHost(liveHost)
+        }
+        hosts = loadCachedHosts().map(\.discoveredHost)
+        selectRememberedIfOnline()
+    }
+
+    private func discoverAll() async {
         let found = await discovery.discover(lastKnownAddress: lastKnownAddress) { text in
             await MainActor.run { self.status = text }
         }
-        hosts = found
-
-        if let rememberedNodeId = UserDefaults.standard.string(forKey: Keys.nodeId),
-           found.contains(where: { $0.nodeId == rememberedNodeId }) {
-            selectedHostId = rememberedNodeId
+        onlineNodeIds = Set(found.map(\.nodeId))
+        for host in found {
+            upsertHost(host)
         }
+        hosts = loadCachedHosts().map(\.discoveredHost)
+        selectRememberedIfOnline()
+    }
 
-        if found.isEmpty {
+    private func refreshStatusFromOnlineCount() {
+        if onlineNodeIds.isEmpty {
             status = "没有找到主机，请检查两台电脑是否连接同一网络"
-        } else if found.count == 1 {
+        } else if onlineNodeIds.count == 1 {
             status = "找到 1 台主机，确认后即可连接"
         } else {
-            status = "找到 \(found.count) 台主机，请选择要连接的主机"
+            status = "找到 \(onlineNodeIds.count) 台主机，请选择要连接的主机"
+        }
+    }
+
+    private func selectRememberedIfOnline() {
+        if let rememberedNodeId = UserDefaults.standard.string(forKey: Keys.nodeId),
+           onlineNodeIds.contains(rememberedNodeId) {
+            selectedHostId = rememberedNodeId
+        }
+    }
+
+    /// 已批准/在线的主机固定进缓存列表，下次启动直接检查在线状态。
+    private func upsertHost(_ host: DiscoveredHost) {
+        var cached = loadCachedHosts()
+        let entry = HostCacheEntry(host: host)
+        if let index = cached.firstIndex(where: { $0.nodeId == host.nodeId }) {
+            cached[index] = entry
+        } else {
+            cached.append(entry)
+        }
+        persistCachedHosts(cached)
+    }
+
+    private func loadCachedHosts() -> [HostCacheEntry] {
+        guard let data = UserDefaults.standard.data(forKey: Keys.knownHosts) else { return [] }
+        return (try? JSONDecoder().decode([HostCacheEntry].self, from: data)) ?? []
+    }
+
+    private func persistCachedHosts(_ cached: [HostCacheEntry]) {
+        if let data = try? JSONEncoder().encode(cached) {
+            UserDefaults.standard.set(data, forKey: Keys.knownHosts)
+        }
+    }
+
+    private func refreshHostListFromCache() {
+        hosts = loadCachedHosts().map(\.discoveredHost)
+    }
+
+    private func maybeAutoOpenWeb() async {
+        guard !didAutoOpenWeb else { return }
+        didAutoOpenWeb = true
+        guard let host = selectedHost, onlineNodeIds.contains(host.nodeId) else { return }
+
+        switch host.accessProtected {
+        case .some(false):
+            openBrowser(host.webURL)
+        case .some(true):
+            if let key = keyStore.key(for: host.address), !key.isEmpty,
+               await probe.probe(address: host.address, key: key) == .authorized {
+                openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: host.address, key: key)))
+            }
+        case .none:
+            if await probe.probe(address: host.address, key: nil) == .authorized {
+                openBrowser(host.webURL)
+            } else if let key = keyStore.key(for: host.address), !key.isEmpty,
+                      await probe.probe(address: host.address, key: key) == .authorized {
+                openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: host.address, key: key)))
+            }
         }
     }
 
@@ -82,7 +188,8 @@ final class ViewerModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Keys.nodeId)
         UserDefaults.standard.removeObject(forKey: Keys.nodeName)
         selectedHostId = nil
-        await search()
+        await verifyKnownHosts()
+        refreshStatusFromOnlineCount()
     }
 
     func openWebPlayback() async {
@@ -117,6 +224,7 @@ final class ViewerModel: ObservableObject {
             return "无法连接该主机，请检查地址与网络"
         }
         remember(host)
+        upsertHost(host)
         if !parsed.accessKey.isEmpty {
             keyStore.save(parsed.accessKey, for: host.address)
         }
@@ -223,7 +331,7 @@ struct ContentView: View {
             footer
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .task { await model.search() }
+        .task { await model.startupRefresh() }
         .sheet(isPresented: $showManualConnection) {
             ManualConnectionView { input in
                 await model.connectManually(input)
@@ -247,7 +355,7 @@ struct ContentView: View {
             }
             Spacer()
             Circle()
-                .fill(model.hosts.isEmpty ? Color.secondary.opacity(0.45) : AppTheme.successGreen)
+                .fill(model.onlineNodeIds.isEmpty ? Color.secondary.opacity(0.45) : AppTheme.successGreen)
                 .frame(width: 8, height: 8)
         }
         .padding(.horizontal, 16)
@@ -283,7 +391,8 @@ struct ContentView: View {
                         ForEach(model.hosts) { host in
                             HostCard(
                                 host: host,
-                                isSelected: host.nodeId == model.selectedHostId
+                                isSelected: host.nodeId == model.selectedHostId,
+                                isOnline: model.onlineNodeIds.contains(host.nodeId)
                             ) {
                                 model.selectedHostId = host.nodeId
                             }
@@ -351,6 +460,7 @@ struct ContentView: View {
 private struct HostCard: View {
     let host: DiscoveredHost
     let isSelected: Bool
+    let isOnline: Bool
     let action: () -> Void
 
     var body: some View {
@@ -362,6 +472,11 @@ private struct HostCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                if !isOnline {
+                    Text("离线")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             if !host.capabilitySummary.isEmpty {
                 Text(host.capabilitySummary)
@@ -370,6 +485,7 @@ private struct HostCard: View {
                     .lineLimit(1)
             }
         }
+        .opacity(isOnline ? 1 : 0.55)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
