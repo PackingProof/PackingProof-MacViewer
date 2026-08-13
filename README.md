@@ -2,6 +2,10 @@
 
 PackProof（PackingProof）的 macOS 查看端，对应桌面版第四种用途“只连接主机查看”：不录像、不做保存主机，只负责在局域网中发现 Windows 保存主机，并用系统默认浏览器打开主机的网页回放页面。
 
+## 界面截图
+
+![PackingProof MacViewer 主界面](Image/screenshot-main.png)
+
 ## 功能
 
 - 自动搜索同一局域网内的 PackingProof 保存主机
