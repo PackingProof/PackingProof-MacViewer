@@ -8,6 +8,8 @@ struct PackingProofViewerApp: App {
     var body: some Scene {
         WindowGroup("PackingProof 查看端") {
             ContentView()
+                .frame(width: 520, height: 300)
         }
+        .windowResizability(.contentSize)
     }
 }

@@ -215,63 +215,14 @@ struct ContentView: View {
     @State private var showManualConnection = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Text("PackingProof 只连接主机查看")
-                    .font(.title2.weight(.semibold))
-                Spacer()
-            }
-            .padding(16)
-
+        VStack(spacing: 0) {
+            header
             Divider()
-
-            HStack(spacing: 8) {
-                if model.isSearching {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Text(model.status)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(12)
-
-            List(model.hosts, selection: Binding(
-                get: { model.selectedHostId },
-                set: { model.selectedHostId = $0 }
-            )) { host in
-                HostRow(host: host)
-                    .tag(host.nodeId as String?)
-            }
-            .listStyle(.inset)
-
+            hostList
             Divider()
-
-            HStack(spacing: 10) {
-                Button("重新搜索") {
-                    Task { await model.search() }
-                }
-                .disabled(model.isSearching)
-
-                Button("手动连接") {
-                    showManualConnection = true
-                }
-
-                Button("更换保存主机") {
-                    Task { await model.clearRememberedHost() }
-                }
-
-                Spacer()
-
-                Button("打开网页回放") {
-                    Task { await model.openWebPlayback() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.selectedHost == nil || model.isOpeningWeb)
-            }
-            .padding(12)
+            footer
         }
-        .frame(minWidth: 640, minHeight: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
         .task { await model.search() }
         .sheet(isPresented: $showManualConnection) {
             ManualConnectionView { input in
@@ -279,25 +230,164 @@ struct ContentView: View {
             }
         }
     }
-}
 
-private struct HostRow: View {
-    let host: DiscoveredHost
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(host.nodeName)
-                .font(.headline)
-            Text(host.address)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if !host.capabilitySummary.isEmpty {
-                Text(host.capabilitySummary)
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(nsImage: Self.appIcon)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 30, height: 30)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("PackingProof 查看端")
+                    .font(.headline)
+                Text("只连接主机查看")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Circle()
+                .fill(model.hosts.isEmpty ? Color.secondary.opacity(0.45) : AppTheme.successGreen)
+                .frame(width: 8, height: 8)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private static var appIcon: NSImage {
+        NSApp.applicationIconImage
+            ?? NSImage(systemSymbolName: "shippingbox.fill", accessibilityDescription: nil)
+            ?? NSImage()
+    }
+
+    private var hostList: some View {
+        Group {
+            if model.hosts.isEmpty {
+                VStack(spacing: 8) {
+                    if model.isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: AppTheme.Symbol.noHost)
+                            .font(.title3)
+                            .foregroundStyle(.tertiary)
+                        Text("未找到主机")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(model.hosts) { host in
+                            HostCard(
+                                host: host,
+                                isSelected: host.nodeId == model.selectedHostId
+                            ) {
+                                model.selectedHostId = host.nodeId
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
             }
         }
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var footer: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                if model.isSearching || model.isOpeningWeb {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(model.status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    Task { await model.search() }
+                } label: {
+                    Label("重新搜索", systemImage: AppTheme.Symbol.search)
+                }
+                .disabled(model.isSearching)
+
+                Button {
+                    showManualConnection = true
+                } label: {
+                    Label("手动连接", systemImage: AppTheme.Symbol.manualConnect)
+                }
+
+                Button {
+                    Task { await model.clearRememberedHost() }
+                } label: {
+                    Label("更换主机", systemImage: AppTheme.Symbol.changeHost)
+                }
+
+                Spacer()
+
+                Button {
+                    Task { await model.openWebPlayback() }
+                } label: {
+                    Label("打开网页回放", systemImage: AppTheme.Symbol.play)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accentBlue)
+                .disabled(model.selectedHost == nil || model.isOpeningWeb)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+private struct HostCard: View {
+    let host: DiscoveredHost
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(host.nodeName)
+                    .font(.callout.weight(.semibold))
+                Text(host.address)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            if !host.capabilitySummary.isEmpty {
+                Text(host.capabilitySummary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected
+                    ? AppTheme.accentBlue.opacity(0.12)
+                    : Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(
+                    isSelected ? AppTheme.accentBlue : Color(nsColor: .separatorColor),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture(perform: action)
     }
 }
 
@@ -314,13 +404,13 @@ private struct ManualConnectionView: View {
             Text("手动连接主机")
                 .font(.headline)
 
-            TextField("例如 192.168.1.5:5280 或 http://192.168.1.5:5280?key=…", text: $input)
+            TextField("例如 192.168.1.5:5280 或带 key 的完整链接", text: $input)
                 .textFieldStyle(.roundedBorder)
 
             if let errorText {
                 Text(errorText)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppTheme.errorRed)
             }
 
             HStack {
@@ -328,15 +418,19 @@ private struct ManualConnectionView: View {
                 Button("取消") {
                     dismiss()
                 }
-                Button("连接") {
+                Button {
                     connect()
+                } label: {
+                    Label("连接", systemImage: AppTheme.Symbol.manualConnect)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(AppTheme.accentBlue)
                 .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isConnecting)
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 400)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func connect() {
