@@ -12,9 +12,11 @@ final class NodeInfoTests: XCTestCase {
         nodeName: String = "打包主机",
         preset: String = "RecordingHost",
         capabilities: [String] = ["host", "web-playback"],
-        httpPort: Int = 5280
+        httpPort: Int = 5280,
+        accessProtected: Bool? = nil,
+        includeAccessProtected: Bool = false
     ) throws -> NodeInfo {
-        let data = try JSONSerialization.data(withJSONObject: [
+        var object: [String: Any] = [
             "protocol": protocolValue,
             "protocolVersion": protocolVersion,
             "nodeId": nodeId,
@@ -22,7 +24,11 @@ final class NodeInfoTests: XCTestCase {
             "preset": preset,
             "capabilities": capabilities,
             "httpPort": httpPort
-        ])
+        ]
+        if includeAccessProtected {
+            object["accessProtected"] = accessProtected as Any
+        }
+        let data = try JSONSerialization.data(withJSONObject: object)
         return try JSONDecoder().decode(NodeInfo.self, from: data)
     }
 
@@ -60,5 +66,17 @@ final class NodeInfoTests: XCTestCase {
     func testInvalidHttpPortIsRejected() throws {
         XCTAssertFalse(try makeNode(httpPort: 0).isValidHost)
         XCTAssertFalse(try makeNode(httpPort: 70000).isValidHost)
+    }
+
+    func testAccessProtectedIsDecoded() throws {
+        XCTAssertNil(try makeNode().accessProtected)
+        XCTAssertEqual(
+            try makeNode(accessProtected: true, includeAccessProtected: true).accessProtected,
+            true
+        )
+        XCTAssertEqual(
+            try makeNode(accessProtected: false, includeAccessProtected: true).accessProtected,
+            false
+        )
     }
 }

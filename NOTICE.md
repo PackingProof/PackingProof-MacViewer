@@ -12,3 +12,10 @@
 - 响应 JSON 字段：`protocol`、`protocolVersion`、`nodeId`、`nodeName`、`preset`、`capabilities`、`httpPort`。
 - 只有 `protocol == "packingproof"`、`protocolVersion == 1`、`nodeId` 为合法非空 UUID、`preset` 为已知值且 `capabilities` 含 `host` 的节点才被列为可用主机。
 - 网页回放直接打开 `http://主机地址:端口`，页面由 Windows 主机提供，本端只负责发现与跳转。
+
+## 受保护主机的查看端授权（随主机端 v0.0.49+）
+
+- `/api/node-info` 可选字段 `accessProtected`：true=开启网页保护，false=明确未保护，缺失=旧主机无法确认。
+- 查看端以 `deviceKind=viewer` 复用 `/api/mobile-backup/enroll`（历史命名，实际语义是通用设备注册 + 主机批准）；批准后回包携带 `webAccessUrl`（带 `?key=` 的完整链接，与手机链接同密钥）。
+- `backupProtocol=mobile-backup-v2` 是协议栈版本标识，不代表客户端类型；`platform=macos/windows` 仅用于批准弹窗展示。
+- 本端只用预检通过的链接拉起浏览器：受保护主机绝不无认证打开；key 失效最多自动申请一次。

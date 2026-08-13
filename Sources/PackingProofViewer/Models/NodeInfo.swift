@@ -12,6 +12,7 @@ struct NodeInfo: Codable, Sendable {
     let preset: String
     let capabilities: [String]
     let httpPort: Int
+    let accessProtected: Bool?
 
     enum CodingKeys: String, CodingKey {
         case `protocol`
@@ -21,6 +22,7 @@ struct NodeInfo: Codable, Sendable {
         case preset
         case capabilities
         case httpPort
+        case accessProtected
     }
 
     static let expectedProtocol = "packingproof"
@@ -55,6 +57,7 @@ struct DiscoveredHost: Identifiable, Hashable, Sendable {
     let nodeName: String
     let address: String
     let capabilitySummary: String
+    let accessProtected: Bool?
 
     var id: String { nodeId }
 

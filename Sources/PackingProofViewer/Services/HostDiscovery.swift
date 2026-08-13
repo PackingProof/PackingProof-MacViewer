@@ -115,7 +115,8 @@ final class HostDiscovery {
                 nodeId: node.nodeId,
                 nodeName: node.nodeName,
                 address: "http://\(normalized)",
-                capabilitySummary: node.capabilitySummary
+                capabilitySummary: node.capabilitySummary,
+                accessProtected: node.accessProtected
             )
         } catch {
             return nil

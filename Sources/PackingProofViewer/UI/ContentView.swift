@@ -9,9 +9,14 @@ final class ViewerModel: ObservableObject {
     @Published var hosts: [DiscoveredHost] = []
     @Published var status = "正在搜索同一网络中的主机"
     @Published var isSearching = false
+    @Published var isOpeningWeb = false
     @Published var selectedHostId: String?
 
     private let discovery: HostDiscovery
+    private let enrollment: EnrollmentService
+    private let probe: WebAccessProbe
+    private let keyStore: any WebAccessKeyStoring
+    private let openURL: (URL) -> Bool
 
     private enum Keys {
         static let address = "LastKnownHostAddress"
@@ -19,8 +24,18 @@ final class ViewerModel: ObservableObject {
         static let nodeName = "LastKnownHostNodeName"
     }
 
-    init(discovery: HostDiscovery = HostDiscovery()) {
+    init(
+        discovery: HostDiscovery = HostDiscovery(),
+        enrollment: EnrollmentService = EnrollmentService(),
+        probe: WebAccessProbe = WebAccessProbe(),
+        keyStore: any WebAccessKeyStoring = KeychainWebAccessKeyStore(),
+        openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) {
         self.discovery = discovery
+        self.enrollment = enrollment
+        self.probe = probe
+        self.keyStore = keyStore
+        self.openURL = openURL
     }
 
     var lastKnownAddress: String? {
@@ -60,6 +75,9 @@ final class ViewerModel: ObservableObject {
     }
 
     func clearRememberedHost() async {
+        if let address = lastKnownAddress {
+            keyStore.deleteKey(for: address)
+        }
         UserDefaults.standard.removeObject(forKey: Keys.address)
         UserDefaults.standard.removeObject(forKey: Keys.nodeId)
         UserDefaults.standard.removeObject(forKey: Keys.nodeName)
@@ -67,18 +85,24 @@ final class ViewerModel: ObservableObject {
         await search()
     }
 
-    func openWebPlayback() {
-        guard let host = selectedHost ?? hosts.first,
-              let url = host.webURL else {
+    func openWebPlayback() async {
+        guard !isOpeningWeb else { return }
+        guard let host = selectedHost ?? hosts.first else {
             status = "请先选择一台主机"
             return
         }
-        remember(host)
-        guard NSWorkspace.shared.open(url) else {
-            status = "打开网页回放失败"
-            return
+
+        isOpeningWeb = true
+        defer { isOpeningWeb = false }
+        let address = host.address
+        switch host.accessProtected {
+        case .some(false):
+            openBrowser(host.webURL)
+        case .some(true):
+            await openProtected(address: address)
+        case .none:
+            await openLegacy(address: address)
         }
-        status = "已在浏览器中打开：\(host.nodeName)（\(host.address)）"
     }
 
     /// 返回 nil 表示连接成功，否则返回错误文案。
@@ -93,6 +117,9 @@ final class ViewerModel: ObservableObject {
             return "无法连接该主机，请检查地址与网络"
         }
         remember(host)
+        if !parsed.accessKey.isEmpty {
+            keyStore.save(parsed.accessKey, for: host.address)
+        }
         if let index = hosts.firstIndex(where: { $0.nodeId == host.nodeId }) {
             hosts[index] = host
         } else {
@@ -107,6 +134,79 @@ final class ViewerModel: ObservableObject {
         UserDefaults.standard.set(host.address, forKey: Keys.address)
         UserDefaults.standard.set(host.nodeId, forKey: Keys.nodeId)
         UserDefaults.standard.set(host.nodeName, forKey: Keys.nodeName)
+    }
+
+    private func openBrowser(_ url: URL?) {
+        guard let url, openURL(url) else {
+            status = "打开网页回放失败"
+            return
+        }
+        status = "已在浏览器中打开网页回放"
+    }
+
+    /// 受保护主机：有 key 先预检；401 则清除旧 key、自动申请一次并再次预检；
+    /// 只有预检通过才打开浏览器，申请成功不直接信任返回链接。
+    private func openProtected(address: String) async {
+        if let key = keyStore.key(for: address), !key.isEmpty {
+            let result = await probe.probe(address: address, key: key)
+            switch result {
+            case .authorized:
+                openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: address, key: key)))
+                return
+            case .failed:
+                status = "无法连接保存主机网页，请检查网络后重试"
+                return
+            case .unauthorized:
+                keyStore.deleteKey(for: address)
+            }
+        }
+
+        status = "正在请求保存主机允许连接"
+        do {
+            let webAccessUrl = try await enrollment.enroll(address: address)
+            let parsed = AddressNormalizer.parseConnection(webAccessUrl)
+            guard !parsed.accessKey.isEmpty else {
+                status = EnrollmentError.missingWebAccessUrl.message
+                return
+            }
+            let result = await probe.probe(address: address, key: parsed.accessKey)
+            guard result == .authorized else {
+                status = "网页访问验证失败，请在保存主机上确认后重试"
+                return
+            }
+            keyStore.save(parsed.accessKey, for: address)
+            openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: address, key: parsed.accessKey)))
+        } catch let error as EnrollmentError {
+            status = "未取得网页访问权限：\(error.message)"
+        } catch {
+            status = "未取得网页访问权限，请稍后重试"
+        }
+    }
+
+    /// 旧主机不返回 accessProtected：先裸地址预检，再尝试已存 key；
+    /// 都失败时提示升级或粘贴链接，绝不无认证拉起浏览器。
+    private func openLegacy(address: String) async {
+        let bare = await probe.probe(address: address, key: nil)
+        switch bare {
+        case .authorized:
+            openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: address, key: nil)))
+            return
+        case .failed:
+            status = "无法连接保存主机网页，请检查网络后重试"
+            return
+        case .unauthorized:
+            break
+        }
+
+        if let key = keyStore.key(for: address), !key.isEmpty {
+            let keyed = await probe.probe(address: address, key: key)
+            if keyed == .authorized {
+                openBrowser(URL(string: WebAccessProbe.buildWebAccessURL(address: address, key: key)))
+                return
+            }
+        }
+
+        status = "保存主机版本过旧或已开启访问保护，请更新保存主机，或使用“手动连接”粘贴完整链接"
     }
 }
 
@@ -164,10 +264,10 @@ struct ContentView: View {
                 Spacer()
 
                 Button("打开网页回放") {
-                    model.openWebPlayback()
+                    Task { await model.openWebPlayback() }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.selectedHost == nil)
+                .disabled(model.selectedHost == nil || model.isOpeningWeb)
             }
             .padding(12)
         }
