@@ -19,3 +19,4 @@
 - 查看端以 `deviceKind=viewer` 复用 `/api/mobile-backup/enroll`（历史命名，实际语义是通用设备注册 + 主机批准）；批准后回包携带 `webAccessUrl`（带 `?key=` 的完整链接，与手机链接同密钥）。
 - `backupProtocol=mobile-backup-v2` 是协议栈版本标识，不代表客户端类型；`platform=macos/windows` 仅用于批准弹窗展示。
 - 本端只用预检通过的链接拉起浏览器：受保护主机绝不无认证打开；key 失效最多自动申请一次。
+- key 默认保存在 `~/Library/Application Support/PackingProofViewer/web-access-keys.json`（0600 权限，与 Windows 端 config.json 的安全级别一致）；ad-hoc 签名阶段不使用钥匙串以避免每次重建触发 ACL 弹窗，正式 Developer ID 签名后可选切回 KeychainWebAccessKeyStore。

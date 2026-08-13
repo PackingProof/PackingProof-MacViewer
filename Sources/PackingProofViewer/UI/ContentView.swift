@@ -28,7 +28,7 @@ final class ViewerModel: ObservableObject {
         discovery: HostDiscovery = HostDiscovery(),
         enrollment: EnrollmentService = EnrollmentService(),
         probe: WebAccessProbe = WebAccessProbe(),
-        keyStore: any WebAccessKeyStoring = KeychainWebAccessKeyStore(),
+        keyStore: any WebAccessKeyStoring = FileWebAccessKeyStore(),
         openURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
     ) {
         self.discovery = discovery
