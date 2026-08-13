@@ -22,6 +22,16 @@ open dist/PackingProofViewer.app
 
 也可以用 Xcode 打开 `Package.swift` 直接运行调试。
 
+## 发布与安装（GitHub Release）
+
+```bash
+./scripts/package-release.sh 0.0.1
+```
+
+- 将生成的 `dist/PackingProofViewer_v0.0.1_macOS.zip` 上传到 GitHub Release，并附上 `.sha256` 校验值。
+- 安装：解压后把 `PackingProofViewer.app` 拖入“应用程序”；首次打开如被拦截，请右键 → 打开。
+- 当前为方案 A（未做 Apple 公证），其他 Mac 首次打开会有 Gatekeeper 提示；后续切换 Developer ID 签名 + 公证无需改动代码。
+
 ## 范围说明
 
 - 不包含录像、保存主机、备份/NAS、订单联动、退款拦截等功能
