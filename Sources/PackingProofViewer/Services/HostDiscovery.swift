@@ -48,6 +48,18 @@ final class HostDiscovery {
         lastKnownAddress: String?,
         onProgress: (@Sendable (String) async -> Void)? = nil
     ) async -> [DiscoveredHost] {
+        async let udpHosts = discoverUdpHosts(onProgress: onProgress)
+        async let httpHosts = discoverHttpHosts(
+            lastKnownAddress: lastKnownAddress,
+            onProgress: onProgress
+        )
+        return Self.mergeHosts(await udpHosts, await httpHosts)
+    }
+
+    private func discoverHttpHosts(
+        lastKnownAddress: String?,
+        onProgress: (@Sendable (String) async -> Void)?
+    ) async -> [DiscoveredHost] {
         var hosts: [DiscoveredHost] = []
         var seenNodeIds = Set<String>()
         var seenAddresses = Set<String>()
@@ -93,6 +105,39 @@ final class HostDiscovery {
         return hosts
     }
 
+    private func discoverUdpHosts(
+        onProgress: (@Sendable (String) async -> Void)?
+    ) async -> [DiscoveredHost] {
+        var hosts: [DiscoveredHost] = []
+        var seenNodeIds = Set<String>()
+        var seenAddresses = Set<String>()
+
+        await onProgress?("正在通过局域网广播查找主机")
+        for await announce in UdpDiscovery.discoverAnnounces() {
+            if let host = await probe("\(announce.sourceIp):\(announce.httpPort)"),
+               seenNodeIds.insert(host.nodeId).inserted,
+               seenAddresses.insert(host.address).inserted {
+                hosts.append(host)
+            }
+        }
+        return hosts
+    }
+
+    private static func mergeHosts(
+        _ first: [DiscoveredHost],
+        _ second: [DiscoveredHost]
+    ) -> [DiscoveredHost] {
+        var merged: [DiscoveredHost] = []
+        var seenNodeIds = Set<String>()
+        var seenAddresses = Set<String>()
+        for host in first + second {
+            guard seenNodeIds.insert(host.nodeId).inserted else { continue }
+            guard seenAddresses.insert(host.address).inserted else { continue }
+            merged.append(host)
+        }
+        return merged
+    }
+
     /// 请求 `GET /api/node-info` 并校验，返回可直接打开网页回放的主机。
     func probe(_ address: String) async -> DiscoveredHost? {
         let normalized = AddressNormalizer.normalize(address)
@@ -111,10 +156,13 @@ final class HostDiscovery {
             }
             let node = try JSONDecoder().decode(NodeInfo.self, from: data)
             guard node.isValidHost else { return nil }
+            // 地址以「实际请求连接的 IP + node-info 返回的权威 httpPort」为准，
+            // 不信任请求时用的候选端口，避免端口不一致/多网卡时把身份和地址混在一起。
+            let host = normalized.split(separator: ":").first.map(String.init) ?? normalized
             return DiscoveredHost(
                 nodeId: node.nodeId,
                 nodeName: node.nodeName,
-                address: "http://\(normalized)",
+                address: "http://\(host):\(node.httpPort)",
                 capabilitySummary: node.capabilitySummary,
                 accessProtected: node.accessProtected
             )
