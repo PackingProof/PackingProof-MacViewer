@@ -20,27 +20,66 @@ PackProof（PackingProof）的 macOS 查看端，对应桌面版第四种用途�
 ```bash
 swift build          # 编译
 swift test           # 单元测试
-./scripts/build-app.sh   # 生成 dist/PackingProofViewer.app（ad-hoc 签名）
+./scripts/build-app.sh   # 生成 dist/PackingProofViewer.app
 open dist/PackingProofViewer.app
+```
+
+`build-app.sh` 默认使用本机的 `Developer ID Application` 证书签名，并开启 Hardened Runtime。只在当前机器做本地自测时，也可以显式使用临时签名：
+
+```bash
+SIGN_IDENTITY=- ./scripts/build-app.sh
 ```
 
 也可以用 Xcode 打开 `Package.swift` 直接运行调试。
 
 ## 发布与安装（GitHub Release）
 
+首次发布前需要在本机准备 Apple 公证凭据：
+
 ```bash
-./scripts/package-release.sh 0.0.1
+xcrun notarytool store-credentials "PackingProofNotary" \
+  --apple-id "你的 Apple ID" \
+  --team-id "你的 Team ID" \
+  --password "App 专用密码"
 ```
 
-- 将生成的 `dist/PackingProofViewer_v0.0.1_macOS.zip` 上传到 GitHub Release，并附上 `.sha256` 校验值。
-- 安装：解压后把 `PackingProofViewer.app` 拖入“应用程序”；首次打开如被拦截，请右键 → 打开。
-- 当前为方案 A（未做 Apple 公证），其他 Mac 首次打开会有 Gatekeeper 提示；后续切换 Developer ID 签名 + 公证无需改动代码。
+本机签名证书名称保存在被 Git 忽略的 `scripts/signing.env` 中。首次配置请执行：
+
+```bash
+cp scripts/signing.env.example scripts/signing.env
+```
+
+然后编辑 `scripts/signing.env`，把 `SIGN_IDENTITY` 替换为本机证书全名。
+
+然后执行打包脚本：
+
+```bash
+./scripts/package-release.sh 0.0.2
+```
+
+脚本会依次完成：
+
+1. 编译 release 版本
+2. 使用 `Developer ID Application` 签名 `.app` 并开启 Hardened Runtime
+3. 生成 `PackingProofViewer_v0.0.2_macOS.dmg`
+4. 签名 DMG
+5. 提交 Apple 公证并等待结果
+6. 公证通过后钉入票据
+7. 生成 DMG 的 `.sha256` 校验文件
+
+发布时把 `dist/PackingProofViewer_v0.0.2_macOS.dmg` 上传到 GitHub Release，并附上 `.sha256` 校验值。
+
+安装方式：
+
+1. 打开 DMG
+2. 把 `PackingProofViewer.app` 拖入“应用程序”
+3. 双击运行；该版本已通过 Apple 公证，正常情况下不会出现“无法验证的开发者”提示
 
 ## 范围说明
 
 - 不包含录像、保存主机、备份/NAS、订单联动、退款拦截等功能
 - 不改动 Windows 主机端；协议契约见 [NOTICE.md](NOTICE.md)
-- 仅本机使用，未做公证；如需分发给其他 Mac 需要 Apple Developer 账号并公证
+- 已支持 Developer ID 签名与 Apple 公证，可分发给其他 Mac
 
 ## 许可证
 
