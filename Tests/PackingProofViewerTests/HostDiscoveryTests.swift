@@ -72,7 +72,8 @@ final class HostDiscoveryTests: XCTestCase {
             ports: [5280],
             addressProvider: {
                 addresses.compactMap(IPv4Address.init(string:))
-            }
+            },
+            udpAnnounces: { AsyncStream { $0.finish() } }
         )
     }
 
@@ -142,7 +143,10 @@ final class HostDiscoveryTests: XCTestCase {
 
     func testDiscoverDeduplicatesByNodeId() async {
         let discovery = makeDiscovery(addresses: ["192.0.2.10", "192.0.2.11"])
-        let hosts = await discovery.discover(lastKnownAddress: nil)
+        var hosts: [DiscoveredHost] = []
+        for await host in discovery.discover(lastKnownAddress: nil) {
+            hosts.append(host)
+        }
         XCTAssertEqual(hosts.count, 1)
         XCTAssertTrue(
             ["http://192.0.2.10:5280", "http://192.0.2.11:5280"].contains(hosts.first?.address ?? "")
@@ -151,7 +155,10 @@ final class HostDiscoveryTests: XCTestCase {
 
     func testDiscoverDoesNotDuplicateLastKnownAddress() async {
         let discovery = makeDiscovery(addresses: ["192.0.2.10", "192.0.2.11"])
-        let hosts = await discovery.discover(lastKnownAddress: "192.0.2.10:5280")
+        var hosts: [DiscoveredHost] = []
+        for await host in discovery.discover(lastKnownAddress: "192.0.2.10:5280") {
+            hosts.append(host)
+        }
         XCTAssertEqual(hosts.count, 1)
     }
 }

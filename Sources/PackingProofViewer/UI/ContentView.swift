@@ -102,14 +102,21 @@ final class ViewerModel: ObservableObject {
     }
 
     private func discoverAll() async {
-        let found = await discovery.discover(lastKnownAddress: lastKnownAddress) { text in
+        onlineNodeIds = []
+        var seen = Set<String>()
+        let stream = discovery.discover(lastKnownAddress: lastKnownAddress) { text in
             await MainActor.run { self.status = text }
         }
-        onlineNodeIds = Set(found.map(\.nodeId))
-        for host in found {
+        for await host in stream {
+            guard seen.insert(host.nodeId).inserted else { continue }
+            onlineNodeIds.insert(host.nodeId)
             upsertHost(host)
+            if let index = hosts.firstIndex(where: { $0.nodeId == host.nodeId }) {
+                hosts[index] = host
+            } else {
+                hosts.append(host)
+            }
         }
-        hosts = loadCachedHosts().map(\.discoveredHost)
         selectRememberedIfOnline()
     }
 

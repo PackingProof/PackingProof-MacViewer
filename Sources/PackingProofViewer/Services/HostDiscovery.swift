@@ -17,18 +17,23 @@ final class HostDiscovery {
     private let ports: [Int]
     private let probeTimeout: TimeInterval
     private let addressProvider: @Sendable () -> [IPv4Address]
+    private let udpAnnounces: @Sendable () -> AsyncStream<UdpAnnounce>
 
     init(
         session: URLSession? = nil,
         batchSize: Int = 32,
         ports: [Int] = [AddressNormalizer.defaultHttpPort],
         probeTimeout: TimeInterval = 3,
-        addressProvider: @escaping @Sendable () -> [IPv4Address] = HostDiscovery.localAddresses
+        addressProvider: @escaping @Sendable () -> [IPv4Address] = HostDiscovery.localAddresses,
+        udpAnnounces: @escaping @Sendable () -> AsyncStream<UdpAnnounce> = {
+            UdpDiscovery.discoverAnnounces()
+        }
     ) {
         self.batchSize = max(1, batchSize)
         self.ports = ports.isEmpty ? [AddressNormalizer.defaultHttpPort] : ports
         self.probeTimeout = probeTimeout
         self.addressProvider = addressProvider
+        self.udpAnnounces = udpAnnounces
 
         if let session {
             self.session = session
@@ -43,31 +48,45 @@ final class HostDiscovery {
         }
     }
 
-    /// 先验证上次连接的主机，再扫描本机所在网段；按 nodeId 去重。
+    /// 先验证上次连接的主机，再扫描本机所在网段；UDP 与 HTTP 两路确认后流式吐出主机。
     func discover(
         lastKnownAddress: String?,
         onProgress: (@Sendable (String) async -> Void)? = nil
-    ) async -> [DiscoveredHost] {
-        async let udpHosts = discoverUdpHosts(onProgress: onProgress)
-        async let httpHosts = discoverHttpHosts(
-            lastKnownAddress: lastKnownAddress,
-            onProgress: onProgress
-        )
-        return Self.mergeHosts(await udpHosts, await httpHosts)
+    ) -> AsyncStream<DiscoveredHost> {
+        AsyncStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                async let udp: Void = self.discoverUdpHosts(
+                    onProgress: onProgress,
+                    yield: { host in _ = continuation.yield(host) }
+                )
+                async let http: Void = self.discoverHttpHosts(
+                    lastKnownAddress: lastKnownAddress,
+                    onProgress: onProgress,
+                    yield: { host in _ = continuation.yield(host) }
+                )
+                _ = await (udp, http)
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     private func discoverHttpHosts(
         lastKnownAddress: String?,
-        onProgress: (@Sendable (String) async -> Void)?
-    ) async -> [DiscoveredHost] {
-        var hosts: [DiscoveredHost] = []
+        onProgress: (@Sendable (String) async -> Void)?,
+        yield: @escaping @Sendable (DiscoveredHost) -> Void
+    ) async {
         var seenNodeIds = Set<String>()
         var seenAddresses = Set<String>()
 
         func accept(_ host: DiscoveredHost) {
             guard seenNodeIds.insert(host.nodeId).inserted else { return }
             guard seenAddresses.insert(host.address).inserted else { return }
-            hosts.append(host)
+            yield(host)
         }
 
         let saved = AddressNormalizer.normalize(lastKnownAddress ?? "")
@@ -101,41 +120,23 @@ final class HostDiscovery {
             }
             start = end
         }
-
-        return hosts
     }
 
     private func discoverUdpHosts(
-        onProgress: (@Sendable (String) async -> Void)?
-    ) async -> [DiscoveredHost] {
-        var hosts: [DiscoveredHost] = []
+        onProgress: (@Sendable (String) async -> Void)?,
+        yield: @escaping @Sendable (DiscoveredHost) -> Void
+    ) async {
         var seenNodeIds = Set<String>()
         var seenAddresses = Set<String>()
 
         await onProgress?("正在通过局域网广播查找主机")
-        for await announce in UdpDiscovery.discoverAnnounces() {
+        for await announce in udpAnnounces() {
             if let host = await probe("\(announce.sourceIp):\(announce.httpPort)"),
                seenNodeIds.insert(host.nodeId).inserted,
                seenAddresses.insert(host.address).inserted {
-                hosts.append(host)
+                yield(host)
             }
         }
-        return hosts
-    }
-
-    private static func mergeHosts(
-        _ first: [DiscoveredHost],
-        _ second: [DiscoveredHost]
-    ) -> [DiscoveredHost] {
-        var merged: [DiscoveredHost] = []
-        var seenNodeIds = Set<String>()
-        var seenAddresses = Set<String>()
-        for host in first + second {
-            guard seenNodeIds.insert(host.nodeId).inserted else { continue }
-            guard seenAddresses.insert(host.address).inserted else { continue }
-            merged.append(host)
-        }
-        return merged
     }
 
     /// 请求 `GET /api/node-info` 并校验，返回可直接打开网页回放的主机。
