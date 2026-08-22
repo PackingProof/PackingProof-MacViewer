@@ -81,6 +81,8 @@ cp scripts/signing.env.example scripts/signing.env
 - 不改动 Windows 主机端；协议契约见 [NOTICE.md](NOTICE.md)
 - 已支持 Developer ID 签名与 Apple 公证，可分发给其他 Mac
 
-## 许可证
+## 许可证与品牌
 
 AGPL-3.0，详见 [LICENSE](LICENSE)。本仓库是对 PackingProof-Desktop 的移植，版权与协议来源见 [NOTICE.md](NOTICE.md)。
+
+`PackingProof`、`PackingProof MacViewer` 名称及官方应用图标属于项目品牌资产，不因源代码采用 AGPL-3.0 而授权第三方将其用于修改版的产品标识。公开发布修改版时，请使用不同的产品名称和图标，并明确标注“非官方修改版”；可以使用“基于 PackingProof 开发”说明来源。详见[品牌使用政策](BRAND_POLICY.md)。
