@@ -1,5 +1,7 @@
 # PackingProof MacViewer
 
+> **本仓库已停止维护**：macOS 端已并入 [PackingProof-Desktop](https://github.com/PackingProof/PackingProof-Desktop)，同一个安装包（Apple Silicon，macOS 12+）同时提供保存主机与查看端两个用途。新用户请直接下载 Desktop 的 macOS 版；本仓库只保留历史版本与协议说明，不再更新。
+
 PackProof（PackingProof）的 macOS 查看端，对应桌面版第四种用途“只连接主机查看”：不录像、不做保存主机，只负责在局域网中发现 Windows 保存主机，并用系统默认浏览器打开主机的网页回放页面。
 
 ## 界面截图
