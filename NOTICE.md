@@ -1,5 +1,7 @@
 # 版权与协议来源
 
+> 本仓库已停止维护：macOS 端已并入 [PackingProof-Desktop](https://github.com/PackingProof/PackingProof-Desktop)，安装包内同时提供保存主机与查看端。以下协议说明仅作历史记录。
+
 本项目是 [PackingProof-Desktop](https://github.com/PackingProof/PackingProof-Desktop)（AGPL-3.0）的 macOS 查看端移植，仅实现其第四种用途“只连接主机查看”。
 
 - 上游仓库：`https://github.com/PackingProof/PackingProof-Desktop.git`
